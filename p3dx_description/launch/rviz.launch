@@ -1,0 +1,24 @@
+<launch>
+  <arg name="model" default="$(find p3dx_description)/urdf/pioneer3dx.xml"/>
+  <arg name="gui" default="False" />
+  <param name="robot_description" command="$(find xacro)/xacro '$(find p3dx_description)/urdf/pioneer3dx.xacro'" />
+  <param name="use_gui" value="$(arg gui)"/>
+  <node name="joint_state_publisher" pkg="joint_state_publisher" type="joint_state_publisher" ></node>
+  <node name="robot_state_publisher" pkg="robot_state_publisher" type="state_publisher" />
+  <node name="rviz" pkg="rviz" type="rviz" args="-d $(find urdf_tutorial)/rviz/urdf.rviz"/>
+
+  <!-- Construct and voxelize the point cloud (for fast visualization in rviz) -->
+  <node pkg="nodelet" type="nodelet" name="points_xyzrgb" args="load rtabmap_ros/point_cloud_xyzrgb standalone_nodelet">
+    <remap from="rgb/image"       to="/camera/rgb/image_raw"/>
+    <remap from="depth/image"     to="/camera/depth/image_raw"/>
+    <remap from="rgb/camera_info" to="/camera/rgb/camera_info"/>
+    <remap from="depth/points"           to="/camera/depth/points" />
+
+    <param name="rgb/image_transport" type="string" value="compressed"/>
+    <param name="depth/image_transport" type="string" value="compressedDepth"/>
+
+    <param name="queue_size" type="int" value="10"/>
+    <param name="voxel_size" type="double" value="0.01"/>
+  </node>
+
+</launch>

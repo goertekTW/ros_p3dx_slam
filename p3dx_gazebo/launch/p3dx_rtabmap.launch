@@ -1,0 +1,130 @@
+<launch>
+  <!-- Kinect cloud to laser scan -->
+    <node pkg="depthimage_to_laserscan" type="depthimage_to_laserscan" name="depthimage_to_laserscan">
+      <remap from="image"     to="/camera/depth/image_raw"/>
+      <remap from="camera_info" to="/camera/depth/camera_info"/>
+      <remap from="scan" to="/kinect_scan"/>
+      <param name="range_max" type="double" value="4"/>
+    </node>
+
+  <!-- SLAM -->
+  <arg name="localization"      default="false"/>
+
+  <arg 	   if="$(arg localization)" name="database_path"  default="rtabmap_location.db"/>
+  <arg unless="$(arg localization)" name="database_path"  default="rtabmap.db"/>
+
+  <arg 	   if="$(arg localization)" name="args"  default=""/>
+  <arg unless="$(arg localization)" name="args"  default="--delete_db_on_start"/>
+
+  <group ns="rtabmap">
+    <node name="rtabmap" pkg="rtabmap_ros" type="rtabmap" output="screen" args="$(arg args)">
+          <param name="frame_id" type="string" value="base_link"/>
+          <param name="database_path" type="string" value="$(arg database_path)"/>
+          <param name="subscribe_depth" type="bool" value="true"/>
+          <param name="subscribe_scan" type="bool" value="true"/>
+	  
+	  <!-- inputs -->
+          <remap from="odom" to="/odom"/>
+          <remap from="scan" to="/kinect_scan"/>
+
+          <remap from="rgb/image" to="/camera/rgb/image_raw"/>
+          <remap from="depth/image" to="/camera/depth/image_raw"/>
+          <remap from="rgb/camera_info" to="/camera/rgb/camera_info"/>
+
+  	  <!-- output -->
+  	  <!--remap from="grid_map" to="/map"/-->
+          <remap from="proj_map" to="/map"/>
+
+          <param name="queue_size" type="int" value="10"/>
+
+          <!-- RTAB-Map's parameters -->
+          <param name="RGBD/ProximityBySpace"     type="string" value="false"/>
+          <param name="RGBD/AngularUpdate"        type="string" value="0.01"/>
+          <param name="RGBD/LinearUpdate"         type="string" value="0.01"/>
+          <param name="RGBD/OptimizeFromGraphEnd" type="string" value="false"/>
+          <param name="Optimizer/Slam2D"          type="string" value="true"/>
+          <param name="Reg/Strategy"              type="string" value="1"/> <!-- 1=ICP -->
+          <param name="Reg/Force3DoF"             type="string" value="true"/>
+          <param name="Vis/MaxDepth"              type="string" value="4.0"/>
+          <param name="Vis/MinInliers"            type="string" value="5"/>
+          <param name="Vis/InlierDistance"        type="string" value="0.05"/>
+          <param name="Rtabmap/TimeThr"           type="string" value="700"/>
+          <param name="Mem/RehearsalSimilarity"   type="string" value="0.45"/>
+          <param name="Icp/CorrespondenceRatio"   type="string" value="0.5"/>
+	  <!-- localization mode -->
+	  <param     if="$(arg localization)" name="Mem/IncrementalMemory" type="string" value="false"/>
+	  <param unless="$(arg localization)" name="Mem/IncrementalMemory" type="string" value="true"/>
+	  <param name="Mem/InitWMWithAllNodes" type="string" value="$(arg localization)"/> 
+    </node>
+  </group> 
+
+  <!-- ******* Navigation - Move Base ******* -->
+  <!-- The move_base node -->  
+  <node pkg="move_base" type="move_base" respawn="false" name="move_base" output="screen">  
+    <rosparam file="$(find p3dx_gazebo)/navigation/costmap_common_params.yaml" command="load" ns="global_costmap" />  
+    <rosparam file="$(find p3dx_gazebo)/navigation/costmap_common_params.yaml" command="load" ns="local_costmap" />  
+    <rosparam file="$(find p3dx_gazebo)/navigation/local_costmap_params.yaml" command="load" />  
+    <rosparam file="$(find p3dx_gazebo)/navigation/global_costmap_params.yaml" command="load" />  
+    <rosparam file="$(find p3dx_gazebo)/navigation/base_local_planner_params.yaml" command="load" />
+  </node> 
+
+    <!-- Set to your sensor's range -->
+    <arg name="sensor_range" default="3.0"/>
+
+    <node pkg="frontier_exploration" type="explore_client" name="explore_client" output="screen"/>
+
+    <node pkg="frontier_exploration" type="explore_server" name="explore_server" output="screen" >
+
+        <param name="frequency" type="double" value="2.0"/>
+        <param name="goal_aliasing" type="double" value="$(arg sensor_range)"/>
+
+        #All standard costmap_2d parameters as in move_base, other than BoundedExploreLayer
+        <rosparam ns="explore_costmap" subst_value="true">
+            #footprint: [[0.1, 0.0], [0.0, 0.1], [-0.1, 0.0], [0.0, -0.1]]
+            robot_radius: 0.1
+
+            transform_tolerance: 0.2
+            update_frequency: 5.0
+            publish_frequency: 5.0
+
+            #must match incoming static map
+            global_frame: map
+            robot_base_frame: base_link
+            resolution: 0.05
+
+            rolling_window: false
+            track_unknown_space: true
+
+            plugins:
+
+                - {name: static,           type: "costmap_2d::StaticLayer"}
+                - {name: explore_boundary, type: "frontier_exploration::BoundedExploreLayer"}
+                #Can disable sensor layer if gmapping is fast enough to update scans
+                - {name: sensor,           type: "costmap_2d::ObstacleLayer"}
+                - {name: inflation,        type: "costmap_2d::InflationLayer"}
+
+            static:
+                #Can pull data from gmapping, map_server or a non-rolling costmap
+                map_topic: /map
+                #map_topic: move_base/global_costmap/costmap
+                subscribe_to_updates: true
+
+            explore_boundary:
+                resize_to_boundary: true
+                frontier_travel_point: closest
+                #set to false for gmapping, true if re-exploring a known area
+                explore_clear_space: false
+
+            sensor:
+                observation_sources: laser
+                laser: {data_type: LaserScan, clearing: true, marking: true, topic: kinect_scan, inf_is_valid: true, raytrace_range: $(arg sensor_range), obstacle_range: $(arg sensor_range)}
+
+            inflation:
+                inflation_radius: 0.5
+      </rosparam>
+    </node>
+
+
+
+
+</launch>
